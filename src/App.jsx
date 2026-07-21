@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://genesis-tow-backend-production.up.railway.app';
@@ -61,6 +61,12 @@ export default function App() {
   const [jobs, setJobs] = useState([]);
   const [booked, setBooked] = useState(false);
 
+  // Camera state
+  const [cameraOpen, setCameraOpen] = useState(null); // null or photo key
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const fileInputRef = useRef({});
+
   // Check if all photos are uploaded
   const allPhotosUploaded = Object.values(photos).every((photo) => photo !== null);
 
@@ -69,13 +75,63 @@ export default function App() {
   const subtypeRequired = currentService?.subtypes.length > 0;
   const subtypeSelected = !subtypeRequired || serviceSubtype !== '';
 
-  // Handle service type change
-  const handleServiceTypeChange = (newServiceType) => {
-    setServiceType(newServiceType);
-    setServiceSubtype(''); // Reset subtype when changing service
+  // Start camera
+  const startCamera = async (photoKey) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      setCameraOpen(photoKey);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+    } catch (err) {
+      setError('Unable to access camera. Please check permissions.');
+      console.error(err);
+    }
   };
 
-  // Handle photo upload
+  // Capture photo from camera
+  const capturePhoto = (photoKey) => {
+    if (!canvasRef.current || !videoRef.current) return;
+
+    const context = canvasRef.current.getContext('2d');
+    const video = videoRef.current;
+
+    canvasRef.current.width = video.videoWidth;
+    canvasRef.current.height = video.videoHeight;
+    context.drawImage(video, 0, 0);
+
+    canvasRef.current.toBlob((blob) => {
+      if (!blob) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setPhotos((prev) => ({
+          ...prev,
+          [photoKey]: {
+            file: blob,
+            preview: e.target?.result,
+          },
+        }));
+        stopCamera();
+        setError('');
+      };
+      reader.readAsDataURL(blob);
+    }, 'image/jpeg', 0.95);
+  };
+
+  // Stop camera
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = videoRef.current.srcObject.getTracks();
+      tracks.forEach((track) => track.stop());
+    }
+    setCameraOpen(null);
+  };
+
+  // Handle file upload (fallback)
   const handlePhotoUpload = (photoKey, event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -106,6 +162,12 @@ export default function App() {
       setError('');
     };
     reader.readAsDataURL(file);
+  };
+
+  // Handle service type change
+  const handleServiceTypeChange = (newServiceType) => {
+    setServiceType(newServiceType);
+    setServiceSubtype(''); // Reset subtype when changing service
   };
 
   const calculateQuote = async () => {
@@ -217,6 +279,38 @@ export default function App() {
     fetchJobs();
   }, []);
 
+  // Camera view modal
+  if (cameraOpen) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
+        <h2 className="text-white text-2xl font-bold mb-4">Capture {PHOTO_TYPES.find((p) => p.key === cameraOpen)?.label}</h2>
+        
+        <video
+          ref={videoRef}
+          className="w-full max-w-md rounded-lg mb-4"
+          style={{ transform: 'scaleX(-1)' }}
+        />
+        
+        <canvas ref={canvasRef} className="hidden" />
+        
+        <div className="flex gap-4">
+          <button
+            onClick={() => capturePhoto(cameraOpen)}
+            className="bg-green-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-green-700 text-lg"
+          >
+            📸 Capture Photo
+          </button>
+          <button
+            onClick={stopCamera}
+            className="bg-red-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-red-700 text-lg"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-4xl mx-auto">
@@ -312,58 +406,87 @@ export default function App() {
               Vehicle Photos * (Required - 6 angles)
             </h3>
             <p className="text-sm text-gray-600 mb-6">
-              Upload photos from all 6 angles to protect both you and the driver from damage disputes.
+              Snap photos directly with your camera or upload from your device. All 6 angles required.
             </p>
 
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               {PHOTO_TYPES.map((photoType) => (
                 <div key={photoType.key} className="flex flex-col items-center">
-                  <label className="w-full">
-                    <div
-                      className={`relative w-full aspect-square border-2 border-dashed rounded-lg cursor-pointer transition ${
-                        photos[photoType.key]
-                          ? 'border-green-500 bg-green-50'
-                          : 'border-gray-300 bg-white hover:bg-gray-50'
-                      }`}
-                    >
-                      {photos[photoType.key] ? (
-                        <>
-                          <img
-                            src={photos[photoType.key].preview}
-                            alt={photoType.label}
-                            className="w-full h-full object-cover rounded"
-                          />
-                          <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">
-                            ✓
-                          </div>
-                        </>
-                      ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center">
-                          <svg
-                            className="w-8 h-8 text-gray-400 mb-2"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M12 4v16m8-8H4"
-                            />
-                          </svg>
-                          <span className="text-xs text-gray-500">Upload</span>
+                  <div
+                    className={`relative w-full aspect-square border-2 border-dashed rounded-lg transition ${
+                      photos[photoType.key]
+                        ? 'border-green-500 bg-green-50'
+                        : 'border-gray-300 bg-white hover:bg-gray-50'
+                    }`}
+                  >
+                    {photos[photoType.key] ? (
+                      <>
+                        <img
+                          src={photos[photoType.key].preview}
+                          alt={photoType.label}
+                          className="w-full h-full object-cover rounded"
+                        />
+                        <div className="absolute top-2 right-2 bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm font-bold">
+                          ✓
                         </div>
-                      )}
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => handlePhotoUpload(photoType.key, e)}
-                        className="hidden"
+                        <button
+                          onClick={() => startCamera(photoType.key)}
+                          className="absolute bottom-2 right-2 bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 text-sm"
+                          title="Retake photo"
+                        >
+                          📷
+                        </button>
+                      </>
+                    ) : (
+                      <div className="w-full h-full flex flex-col items-center justify-center">
+                        <svg
+                          className="w-8 h-8 text-gray-400 mb-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                        <span className="text-xs text-gray-500">Tap to capture</span>
+                      </div>
+                    )}
+
+                    {/* Invisible overlay for click detection */}
+                    {!photos[photoType.key] && (
+                      <button
+                        onClick={() => startCamera(photoType.key)}
+                        className="absolute inset-0 opacity-0 cursor-pointer"
+                        title="Take photo"
                       />
-                    </div>
-                  </label>
+                    )}
+                  </div>
+
+                  {/* Hidden file input as fallback */}
+                  <input
+                    ref={(el) => {
+                      fileInputRef.current[photoType.key] = el;
+                    }}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => handlePhotoUpload(photoType.key, e)}
+                    className="hidden"
+                  />
+
                   <p className="text-xs text-gray-600 mt-2 text-center">{photoType.label}</p>
+
+                  {!photos[photoType.key] && (
+                    <button
+                      onClick={() => fileInputRef.current[photoType.key]?.click()}
+                      className="text-xs text-gray-500 mt-1 hover:text-gray-700 underline"
+                    >
+                      or upload file
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
