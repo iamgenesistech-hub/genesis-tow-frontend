@@ -13,10 +13,7 @@ const PHOTO_TYPES = [
 ];
 
 const SERVICE_TYPES = {
-  tow: {
-    label: 'Tow',
-    subtypes: [],
-  },
+  tow: { label: 'Tow', subtypes: [] },
   roadside_assistance: {
     label: 'Roadside Assistance',
     subtypes: [
@@ -24,10 +21,7 @@ const SERVICE_TYPES = {
       { value: 'lockout', label: 'Lockout' },
     ],
   },
-  winch_out: {
-    label: 'Winch Out',
-    subtypes: [],
-  },
+  winch_out: { label: 'Winch Out', subtypes: [] },
 };
 
 const DUTY_LEVELS = [
@@ -37,6 +31,7 @@ const DUTY_LEVELS = [
 ];
 
 export default function App() {
+  // Form state
   const [serviceType, setServiceType] = useState('tow');
   const [serviceSubtype, setServiceSubtype] = useState('');
   const [dutyLevel, setDutyLevel] = useState('regular');
@@ -52,9 +47,8 @@ export default function App() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerPhoneAlt, setCustomerPhoneAlt] = useState('');
-  const [withVehicle, setWithVehicle] = useState(null); // true or false
-  const [stayingWithVehicle, setStayingWithVehicle] = useState(null); // true or false
-
+  const [withVehicle, setWithVehicle] = useState(null);
+  const [stayingWithVehicle, setStayingWithVehicle] = useState(null);
   const [pickup, setPickup] = useState('');
   const [dropoff, setDropoff] = useState('');
   const [latitude, setLatitude] = useState(null);
@@ -62,12 +56,30 @@ export default function App() {
   const [locationAccuracy, setLocationAccuracy] = useState(null);
   const [locationError, setLocationError] = useState('');
 
+  // Booking state
   const [distance, setDistance] = useState(null);
   const [price, setPrice] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [jobs, setJobs] = useState([]);
   const [booked, setBooked] = useState(false);
+  const [activeJobId, setActiveJobId] = useState(null);
+
+  // Driver info (mock - in production comes from backend)
+  const [driverInfo, setDriverInfo] = useState({
+    name: 'John Smith',
+    companyName: 'Genesis Tow Services',
+    photo: 'https://via.placeholder.com/100?text=John+S',
+    phone: '(404) 555-0123',
+    eta: 12, // minutes
+    status: 'en_route', // en_route, arrived, in_progress, completed
+  });
+
+  // Rating & tip state
+  const [showRating, setShowRating] = useState(false);
+  const [rating, setRating] = useState(0);
+  const [tipAmount, setTipAmount] = useState(0);
+  const [showCompletionMessage, setShowCompletionMessage] = useState(false);
 
   // Camera state
   const [cameraOpen, setCameraOpen] = useState(null);
@@ -113,7 +125,7 @@ export default function App() {
     );
   };
 
-  // Start watching location (for real-time tracking)
+  // Start watching location
   const startWatchingLocation = () => {
     if (!navigator.geolocation) {
       setLocationError('Geolocation is not supported by your browser');
@@ -197,7 +209,7 @@ export default function App() {
     setCameraOpen(null);
   };
 
-  // Handle file upload (fallback)
+  // Handle file upload
   const handlePhotoUpload = (photoKey, event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -227,7 +239,6 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  // Handle service type change
   const handleServiceTypeChange = (newServiceType) => {
     setServiceType(newServiceType);
     setServiceSubtype('');
@@ -297,8 +308,8 @@ export default function App() {
       setDistance(response.data.distance_miles);
       setPrice(response.data.price_cents / 100);
       setBooked(false);
+      setActiveJobId(response.data.id);
 
-      // Start watching location if staying with vehicle
       if (stayingWithVehicle) {
         startWatchingLocation();
       }
@@ -336,11 +347,10 @@ export default function App() {
         payload.service_subtype = serviceSubtype;
       }
 
-      await axios.post(`${API_BASE_URL}/jobs`, payload);
+      const response = await axios.post(`${API_BASE_URL}/jobs`, payload);
 
       setBooked(true);
-
-      // Stop watching location
+      setActiveJobId(response.data.id);
       stopWatchingLocation();
 
       // Reset form
@@ -377,6 +387,34 @@ export default function App() {
     }
   };
 
+  const submitRating = async () => {
+    if (rating === 0) {
+      setError('Please select a rating');
+      return;
+    }
+
+    try {
+      // Send rating to backend
+      await axios.patch(`${API_BASE_URL}/jobs/${activeJobId}`, {
+        rating,
+        tip: tipAmount,
+      });
+
+      setShowRating(false);
+      setShowCompletionMessage(true);
+
+      // Auto-hide completion message after 5 seconds
+      setTimeout(() => {
+        setShowCompletionMessage(false);
+        setRating(0);
+        setTipAmount(0);
+      }, 5000);
+    } catch (err) {
+      setError('Failed to submit rating. Please try again.');
+      console.error(err);
+    }
+  };
+
   const fetchJobs = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/jobs`);
@@ -394,7 +432,7 @@ export default function App() {
     };
   }, []);
 
-  // Camera view modal
+  // Camera view
   if (cameraOpen) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
@@ -424,6 +462,179 @@ export default function App() {
     );
   }
 
+  // Driver tracking view (after booking)
+  if (booked && activeJobId) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+        <div className="max-w-2xl mx-auto">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-gray-900 mb-2">Your Driver is On the Way</h1>
+            <p className="text-xl text-gray-600">ETA: {driverInfo.eta} minutes</p>
+          </div>
+
+          {/* Driver Card */}
+          <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                <img
+                  src={driverInfo.photo}
+                  alt={driverInfo.name}
+                  className="w-20 h-20 rounded-full border-4 border-blue-600"
+                />
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">{driverInfo.name}</h2>
+                  <p className="text-gray-600">{driverInfo.companyName}</p>
+                  <p className="text-sm text-gray-500">Status: {driverInfo.status}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Communication Buttons */}
+            <div className="grid grid-cols-2 gap-4">
+              <button
+                onClick={() => window.open(`tel:${driverInfo.phone}`)}
+                className="bg-green-600 text-white py-4 px-6 rounded-lg font-semibold hover:bg-green-700 flex items-center justify-center gap-2 text-lg"
+              >
+                📞 Call Driver
+              </button>
+              <button
+                onClick={() => window.open(`sms:${driverInfo.phone}`)}
+                className="bg-blue-600 text-white py-4 px-6 rounded-lg font-semibold hover:bg-blue-700 flex items-center justify-center gap-2 text-lg"
+              >
+                💬 Text Driver
+              </button>
+            </div>
+          </div>
+
+          {/* Map Preview (placeholder) */}
+          <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">📍 Live Tracking</h3>
+            <div className="w-full h-64 bg-gray-200 rounded-lg flex items-center justify-center">
+              <p className="text-gray-600">Map integration coming soon</p>
+            </div>
+          </div>
+
+          {/* Ride Details */}
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            <h3 className="text-xl font-bold text-gray-900 mb-4">Service Details</h3>
+            <div className="space-y-3">
+              <p className="text-gray-700">
+                <strong>Distance:</strong> {distance} miles
+              </p>
+              <p className="text-gray-700">
+                <strong>Estimated Price:</strong> ${price.toFixed(2)}
+              </p>
+              <p className="text-gray-700">
+                <strong>Pickup:</strong> {pickup}
+              </p>
+              <p className="text-gray-700">
+                <strong>Dropoff:</strong> {dropoff}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Rating view (after service complete)
+  if (showRating) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6 flex items-center justify-center">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-lg shadow-lg p-8">
+            {showCompletionMessage ? (
+              <div className="text-center">
+                <div className="text-6xl mb-6">✓</div>
+                <h2 className="text-3xl font-bold text-green-600 mb-4">Service Complete!</h2>
+                <p className="text-xl text-gray-600 mb-6">Thank you for using Genesis Tow</p>
+                <p className="text-gray-600">Your driver has sent a text confirmation to {customerPhone}</p>
+                <button
+                  onClick={() => {
+                    setShowRating(false);
+                    setShowCompletionMessage(false);
+                    setBooked(false);
+                  }}
+                  className="mt-8 bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700"
+                >
+                  Back to Home
+                </button>
+              </div>
+            ) : (
+              <>
+                <h2 className="text-3xl font-bold text-gray-900 mb-2">How was your service?</h2>
+                <p className="text-gray-600 mb-8">Please rate your experience with {driverInfo.name}</p>
+
+                {/* Star Rating */}
+                <div className="flex justify-center gap-4 mb-8">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setRating(star)}
+                      className={`text-5xl transition ${
+                        star <= rating ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-200'
+                      }`}
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+
+                {/* Tip Amount */}
+                <div className="mb-8">
+                  <label className="block text-lg font-semibold text-gray-700 mb-4">
+                    Add a Tip (Optional)
+                  </label>
+                  <div className="grid grid-cols-4 gap-3 mb-4">
+                    {[0, 5, 10, 20].map((amount) => (
+                      <button
+                        key={amount}
+                        onClick={() => setTipAmount(amount)}
+                        className={`py-3 px-4 rounded-lg font-semibold transition ${
+                          tipAmount === amount
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                      >
+                        ${amount}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700 font-semibold">Custom:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.50"
+                      value={tipAmount}
+                      onChange={(e) => setTipAmount(parseFloat(e.target.value) || 0)}
+                      className="flex-1 px-4 py-2 border border-gray-300 rounded-lg"
+                    />
+                  </div>
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  onClick={submitRating}
+                  disabled={rating === 0}
+                  className={`w-full py-3 rounded-lg font-semibold text-lg transition ${
+                    rating === 0
+                      ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                      : 'bg-green-600 text-white hover:bg-green-700'
+                  }`}
+                >
+                  Submit Rating & Tip
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main booking form
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-4xl mx-auto">
@@ -841,7 +1052,10 @@ export default function App() {
                 </p>
               </div>
               <button
-                onClick={confirmBooking}
+                onClick={() => {
+                  confirmBooking();
+                  setTimeout(() => setShowRating(true), 2000);
+                }}
                 disabled={loading}
                 className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 transition text-lg"
               >
