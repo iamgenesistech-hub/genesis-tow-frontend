@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://genesis-tow-backend-production.up.railway.app';
@@ -49,10 +49,18 @@ export default function App() {
     rear_passenger_side: null,
   });
 
-  const [pickup, setPickup] = useState('');
-  const [dropoff, setDropoff] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerPhoneAlt, setCustomerPhoneAlt] = useState('');
+  const [withVehicle, setWithVehicle] = useState(null); // true or false
+  const [stayingWithVehicle, setStayingWithVehicle] = useState(null); // true or false
+
+  const [pickup, setPickup] = useState('');
+  const [dropoff, setDropoff] = useState('');
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
+  const [locationAccuracy, setLocationAccuracy] = useState(null);
+  const [locationError, setLocationError] = useState('');
 
   const [distance, setDistance] = useState(null);
   const [price, setPrice] = useState(null);
@@ -62,10 +70,11 @@ export default function App() {
   const [booked, setBooked] = useState(false);
 
   // Camera state
-  const [cameraOpen, setCameraOpen] = useState(null); // null or photo key
+  const [cameraOpen, setCameraOpen] = useState(null);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef({});
+  const watchIdRef = useRef(null);
 
   // Check if all photos are uploaded
   const allPhotosUploaded = Object.values(photos).every((photo) => photo !== null);
@@ -74,6 +83,63 @@ export default function App() {
   const currentService = SERVICE_TYPES[serviceType];
   const subtypeRequired = currentService?.subtypes.length > 0;
   const subtypeSelected = !subtypeRequired || serviceSubtype !== '';
+
+  // Check if contact info is complete
+  const contactComplete = customerName.trim() && customerPhone.trim();
+
+  // Check if vehicle presence is selected
+  const vehiclePresenceSelected = withVehicle !== null;
+  const stayingSelected = withVehicle === false || (withVehicle === true && stayingWithVehicle !== null);
+
+  // Get live location
+  const getCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser');
+      return;
+    }
+
+    setLocationError('');
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude);
+        setLongitude(position.coords.longitude);
+        setLocationAccuracy(Math.round(position.coords.accuracy));
+        setLocationError('');
+      },
+      (err) => {
+        setLocationError(`Location error: ${err.message}. Please enable location permissions.`);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  // Start watching location (for real-time tracking)
+  const startWatchingLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError('Geolocation is not supported by your browser');
+      return;
+    }
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        setLatitude(position.coords.latitude);
+        setLongitude(position.coords.longitude);
+        setLocationAccuracy(Math.round(position.coords.accuracy));
+      },
+      (err) => {
+        console.error('Watch error:', err);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
+
+  // Stop watching location
+  const stopWatchingLocation = () => {
+    if (watchIdRef.current) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+  };
 
   // Start camera
   const startCamera = async (photoKey) => {
@@ -136,20 +202,17 @@ export default function App() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!validTypes.includes(file.type)) {
       setError('Please upload a valid image file (JPEG, PNG, WebP, or GIF)');
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       setError('Image size must be less than 5MB');
       return;
     }
 
-    // Create preview URL
     const reader = new FileReader();
     reader.onload = (e) => {
       setPhotos((prev) => ({
@@ -167,7 +230,7 @@ export default function App() {
   // Handle service type change
   const handleServiceTypeChange = (newServiceType) => {
     setServiceType(newServiceType);
-    setServiceSubtype(''); // Reset subtype when changing service
+    setServiceSubtype('');
   };
 
   const calculateQuote = async () => {
@@ -181,8 +244,28 @@ export default function App() {
       return;
     }
 
+    if (!contactComplete) {
+      setError('Name and phone number are required');
+      return;
+    }
+
+    if (!vehiclePresenceSelected) {
+      setError('Please indicate if you are with the vehicle');
+      return;
+    }
+
+    if (!stayingSelected) {
+      setError('Please indicate if you will stay with the vehicle');
+      return;
+    }
+
     if (subtypeRequired && !subtypeSelected) {
       setError('Please select a service option');
+      return;
+    }
+
+    if (stayingWithVehicle && !latitude) {
+      setError('Please enable your location to share your coordinates');
       return;
     }
 
@@ -195,8 +278,14 @@ export default function App() {
         duty_level: dutyLevel,
         pickup_address: pickup,
         dropoff_address: dropoff,
-        customerName: customerName || null,
-        customerPhone: customerPhone || null,
+        customerName,
+        customerPhone,
+        customerPhoneAlt: customerPhoneAlt || null,
+        with_vehicle: withVehicle,
+        staying_with_vehicle: stayingWithVehicle,
+        latitude: latitude || null,
+        longitude: longitude || null,
+        location_accuracy: locationAccuracy || null,
       };
 
       if (serviceSubtype) {
@@ -208,6 +297,11 @@ export default function App() {
       setDistance(response.data.distance_miles);
       setPrice(response.data.price_cents / 100);
       setBooked(false);
+
+      // Start watching location if staying with vehicle
+      if (stayingWithVehicle) {
+        startWatchingLocation();
+      }
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to calculate quote. Please try again.');
       console.error(err);
@@ -228,8 +322,14 @@ export default function App() {
         duty_level: dutyLevel,
         pickup_address: pickup,
         dropoff_address: dropoff,
-        customerName: customerName || null,
-        customerPhone: customerPhone || null,
+        customerName,
+        customerPhone,
+        customerPhoneAlt: customerPhoneAlt || null,
+        with_vehicle: withVehicle,
+        staying_with_vehicle: stayingWithVehicle,
+        latitude: latitude || null,
+        longitude: longitude || null,
+        location_accuracy: locationAccuracy || null,
       };
 
       if (serviceSubtype) {
@@ -239,10 +339,16 @@ export default function App() {
       await axios.post(`${API_BASE_URL}/jobs`, payload);
 
       setBooked(true);
+
+      // Stop watching location
+      stopWatchingLocation();
+
+      // Reset form
       setPickup('');
       setDropoff('');
       setCustomerName('');
       setCustomerPhone('');
+      setCustomerPhoneAlt('');
       setPhotos({
         front: null,
         rear: null,
@@ -256,6 +362,11 @@ export default function App() {
       setServiceType('tow');
       setServiceSubtype('');
       setDutyLevel('regular');
+      setWithVehicle(null);
+      setStayingWithVehicle(null);
+      setLatitude(null);
+      setLongitude(null);
+      setLocationAccuracy(null);
 
       fetchJobs();
     } catch (err) {
@@ -275,24 +386,26 @@ export default function App() {
     }
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetchJobs();
+
+    return () => {
+      stopWatchingLocation();
+    };
   }, []);
 
   // Camera view modal
   if (cameraOpen) {
     return (
       <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4">
-        <h2 className="text-white text-2xl font-bold mb-4">Capture {PHOTO_TYPES.find((p) => p.key === cameraOpen)?.label}</h2>
-        
-        <video
-          ref={videoRef}
-          className="w-full max-w-md rounded-lg mb-4"
-          style={{ transform: 'scaleX(-1)' }}
-        />
-        
+        <h2 className="text-white text-2xl font-bold mb-4">
+          Capture {PHOTO_TYPES.find((p) => p.key === cameraOpen)?.label}
+        </h2>
+
+        <video ref={videoRef} className="w-full max-w-md rounded-lg mb-4" style={{ transform: 'scaleX(-1)' }} />
+
         <canvas ref={canvasRef} className="hidden" />
-        
+
         <div className="flex gap-4">
           <button
             onClick={() => capturePhoto(cameraOpen)}
@@ -326,13 +439,19 @@ export default function App() {
 
           {booked && (
             <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded">
-              ✓ Booking confirmed! Your service is scheduled.
+              ✓ Booking confirmed! Driver tracking will begin shortly. Stay with your vehicle.
             </div>
           )}
 
           {error && (
             <div className="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded">
               {error}
+            </div>
+          )}
+
+          {locationError && (
+            <div className="mb-6 p-4 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
+              ⚠️ {locationError}
             </div>
           )}
 
@@ -456,7 +575,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Invisible overlay for click detection */}
                     {!photos[photoType.key] && (
                       <button
                         onClick={() => startCamera(photoType.key)}
@@ -466,7 +584,6 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* Hidden file input as fallback */}
                   <input
                     ref={(el) => {
                       fileInputRef.current[photoType.key] = el;
@@ -492,55 +609,182 @@ export default function App() {
             </div>
           </div>
 
-          {/* Location Inputs */}
-          <div className="space-y-4 mb-6">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Pickup Location *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g., 123 Main St, Atlanta, GA"
-                value={pickup}
-                onChange={(e) => setPickup(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Dropoff Location *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g., 456 Oak Ave, Atlanta, GA"
-                value={dropoff}
-                onChange={(e) => setDropoff(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          {/* Contact Information */}
+          <div className="mb-8 p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Contact Information *</h3>
+            <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Name (Optional)
+                  Name *
                 </label>
                 <input
                   type="text"
-                  placeholder="Your name"
+                  placeholder="Your full name"
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
+
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Phone (Optional)
+                  Primary Phone Number *
                 </label>
                 <input
                   type="tel"
-                  placeholder="Your phone"
+                  placeholder="Your phone number"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Secondary Phone Number (Optional)
+                </label>
+                <input
+                  type="tel"
+                  placeholder="Additional phone number"
+                  value={customerPhoneAlt}
+                  onChange={(e) => setCustomerPhoneAlt(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Vehicle Presence */}
+          <div className="mb-8 p-6 bg-green-50 border-2 border-green-200 rounded-lg">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Vehicle Status *</h3>
+
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Are you with your vehicle? *
+              </label>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => {
+                    setWithVehicle(true);
+                    setStayingWithVehicle(true);
+                  }}
+                  className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
+                    withVehicle === true
+                      ? 'bg-green-600 text-white shadow-lg'
+                      : 'bg-white border-2 border-green-200 text-gray-700 hover:border-green-400'
+                  }`}
+                >
+                  ✓ Yes, I'm with it
+                </button>
+                <button
+                  onClick={() => {
+                    setWithVehicle(false);
+                    setStayingWithVehicle(false);
+                  }}
+                  className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
+                    withVehicle === false
+                      ? 'bg-red-600 text-white shadow-lg'
+                      : 'bg-white border-2 border-green-200 text-gray-700 hover:border-green-400'
+                  }`}
+                >
+                  ✗ No, not with it
+                </button>
+              </div>
+            </div>
+
+            {withVehicle === true && (
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Will you stay with your vehicle until the driver arrives? *
+                </label>
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => setStayingWithVehicle(true)}
+                    className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
+                      stayingWithVehicle === true
+                        ? 'bg-green-600 text-white shadow-lg'
+                        : 'bg-white border-2 border-green-200 text-gray-700 hover:border-green-400'
+                    }`}
+                  >
+                    ✓ Yes, I'll stay
+                  </button>
+                  <button
+                    onClick={() => setStayingWithVehicle(false)}
+                    className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
+                      stayingWithVehicle === false
+                        ? 'bg-red-600 text-white shadow-lg'
+                        : 'bg-white border-2 border-green-200 text-gray-700 hover:border-green-400'
+                    }`}
+                  >
+                    ✗ No, I'll leave
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Location Section */}
+          {stayingWithVehicle === true && (
+            <div className="mb-8 p-6 bg-purple-50 border-2 border-purple-200 rounded-lg">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">📍 Your Live Location</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Share your location so the driver can find you. Your coordinates will be sent to the dispatcher.
+              </p>
+
+              <button
+                onClick={getCurrentLocation}
+                className="w-full bg-purple-600 text-white py-3 rounded-lg font-semibold hover:bg-purple-700 mb-4"
+              >
+                📍 Get My Location
+              </button>
+
+              {latitude && longitude && (
+                <div className="p-4 bg-white border border-purple-200 rounded-lg space-y-2">
+                  <p className="text-gray-700">
+                    <strong>Latitude:</strong> {latitude.toFixed(6)}
+                  </p>
+                  <p className="text-gray-700">
+                    <strong>Longitude:</strong> {longitude.toFixed(6)}
+                  </p>
+                  {locationAccuracy && (
+                    <p className="text-sm text-gray-600">
+                      📊 Accuracy: ±{locationAccuracy} meters
+                    </p>
+                  )}
+                  <p className="text-xs text-green-600 font-semibold">
+                    ✓ Location enabled. Your coordinates will be sent to the driver.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Location Inputs */}
+          <div className="mb-8 p-6 bg-gray-50 border-2 border-gray-200 rounded-lg">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Pickup & Dropoff Locations *</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Pickup Location *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., 123 Main St, Atlanta, GA or Mile marker 42 on I-95"
+                  value={pickup}
+                  onChange={(e) => setPickup(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Dropoff Location *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., 456 Oak Ave, Atlanta, GA"
+                  value={dropoff}
+                  onChange={(e) => setDropoff(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
@@ -549,16 +793,27 @@ export default function App() {
           {/* Calculate Quote Button */}
           <button
             onClick={calculateQuote}
-            disabled={loading || !allPhotosUploaded || !subtypeSelected}
+            disabled={
+              loading ||
+              !allPhotosUploaded ||
+              !contactComplete ||
+              !vehiclePresenceSelected ||
+              !stayingSelected ||
+              !subtypeSelected ||
+              (stayingWithVehicle && !latitude)
+            }
             className={`w-full py-3 rounded-lg font-semibold transition ${
-              allPhotosUploaded && subtypeSelected
+              allPhotosUploaded &&
+              contactComplete &&
+              vehiclePresenceSelected &&
+              stayingSelected &&
+              subtypeSelected &&
+              (!stayingWithVehicle || latitude)
                 ? 'bg-blue-600 text-white hover:bg-blue-700'
                 : 'bg-gray-400 text-gray-200 cursor-not-allowed'
             }`}
           >
-            {loading
-              ? 'Calculating...'
-              : `Calculate Quote ${!allPhotosUploaded || !subtypeSelected ? '(Complete form first)' : ''}`}
+            {loading ? 'Calculating...' : 'Calculate Quote & Get Driver'}
           </button>
 
           {/* Quote Results */}
@@ -576,6 +831,11 @@ export default function App() {
                 <p className="text-gray-700">
                   <strong>Distance:</strong> {distance} miles
                 </p>
+                {latitude && longitude && (
+                  <p className="text-gray-700">
+                    <strong>📍 Coordinates:</strong> {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                  </p>
+                )}
                 <p className="text-2xl font-bold text-blue-600">
                   Estimated Price: ${price.toFixed(2)}
                 </p>
@@ -583,9 +843,9 @@ export default function App() {
               <button
                 onClick={confirmBooking}
                 disabled={loading}
-                className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 transition"
+                className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 transition text-lg"
               >
-                {loading ? 'Booking...' : 'Confirm Booking'}
+                {loading ? 'Processing...' : '✓ Confirm & Book Driver'}
               </button>
             </div>
           )}
@@ -614,6 +874,11 @@ export default function App() {
                   <p className="text-gray-700">
                     <strong>Price:</strong> ${(job.price_cents / 100).toFixed(2)}
                   </p>
+                  {job.latitude && job.longitude && (
+                    <p className="text-gray-700 text-sm">
+                      <strong>📍 Location:</strong> {job.latitude.toFixed(4)}, {job.longitude.toFixed(4)}
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
