@@ -30,11 +30,14 @@ const DUTY_LEVELS = [
   { value: 'heavy_duty', label: 'Heavy-Duty (18-Wheelers, Box Trucks)' },
 ];
 
+const INSURANCE_FEE = 12; // $12 flat fee for additional insurance
+
 export default function App() {
   // Form state
   const [serviceType, setServiceType] = useState('tow');
   const [serviceSubtype, setServiceSubtype] = useState('');
   const [dutyLevel, setDutyLevel] = useState('regular');
+  const [addInsurance, setAddInsurance] = useState(false); // NEW
   const [photos, setPhotos] = useState({
     front: null,
     rear: null,
@@ -59,20 +62,21 @@ export default function App() {
   // Booking state
   const [distance, setDistance] = useState(null);
   const [price, setPrice] = useState(null);
+  const [insuranceFee, setInsuranceFee] = useState(0); // NEW
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [jobs, setJobs] = useState([]);
   const [booked, setBooked] = useState(false);
   const [activeJobId, setActiveJobId] = useState(null);
 
-  // Driver info (mock - in production comes from backend)
+  // Driver info (mock)
   const [driverInfo, setDriverInfo] = useState({
     name: 'John Smith',
     companyName: 'Genesis Tow Services',
     photo: 'https://via.placeholder.com/100?text=John+S',
     phone: '(404) 555-0123',
-    eta: 12, // minutes
-    status: 'en_route', // en_route, arrived, in_progress, completed
+    eta: 12,
+    status: 'en_route',
   });
 
   // Rating & tip state
@@ -297,6 +301,7 @@ export default function App() {
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
+        add_insurance: addInsurance, // NEW
       };
 
       if (serviceSubtype) {
@@ -307,6 +312,7 @@ export default function App() {
 
       setDistance(response.data.distance_miles);
       setPrice(response.data.price_cents / 100);
+      setInsuranceFee(addInsurance ? INSURANCE_FEE : 0); // NEW
       setBooked(false);
       setActiveJobId(response.data.id);
 
@@ -341,6 +347,7 @@ export default function App() {
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
+        add_insurance: addInsurance, // NEW
       };
 
       if (serviceSubtype) {
@@ -369,6 +376,8 @@ export default function App() {
       });
       setDistance(null);
       setPrice(null);
+      setInsuranceFee(0); // NEW
+      setAddInsurance(false); // NEW
       setServiceType('tow');
       setServiceSubtype('');
       setDutyLevel('regular');
@@ -394,7 +403,6 @@ export default function App() {
     }
 
     try {
-      // Send rating to backend
       await axios.patch(`${API_BASE_URL}/jobs/${activeJobId}`, {
         rating,
         tip: tipAmount,
@@ -403,7 +411,6 @@ export default function App() {
       setShowRating(false);
       setShowCompletionMessage(true);
 
-      // Auto-hide completion message after 5 seconds
       setTimeout(() => {
         setShowCompletionMessage(false);
         setRating(0);
@@ -462,18 +469,16 @@ export default function App() {
     );
   }
 
-  // Driver tracking view (after booking)
+  // Driver tracking view
   if (booked && activeJobId) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
         <div className="max-w-2xl mx-auto">
-          {/* Header */}
           <div className="text-center mb-8">
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Your Driver is On the Way</h1>
             <p className="text-xl text-gray-600">ETA: {driverInfo.eta} minutes</p>
           </div>
 
-          {/* Driver Card */}
           <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-4">
@@ -490,7 +495,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Communication Buttons */}
             <div className="grid grid-cols-2 gap-4">
               <button
                 onClick={() => window.open(`tel:${driverInfo.phone}`)}
@@ -507,7 +511,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Map Preview (placeholder) */}
           <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
             <h3 className="text-xl font-bold text-gray-900 mb-4">📍 Live Tracking</h3>
             <div className="w-full h-64 bg-gray-200 rounded-lg flex items-center justify-center">
@@ -515,7 +518,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Ride Details */}
           <div className="bg-white rounded-lg shadow-lg p-8">
             <h3 className="text-xl font-bold text-gray-900 mb-4">Service Details</h3>
             <div className="space-y-3">
@@ -524,6 +526,14 @@ export default function App() {
               </p>
               <p className="text-gray-700">
                 <strong>Estimated Price:</strong> ${price.toFixed(2)}
+              </p>
+              {insuranceFee > 0 && (
+                <p className="text-gray-700">
+                  <strong>Insurance Fee:</strong> ${insuranceFee.toFixed(2)}
+                </p>
+              )}
+              <p className="text-gray-700 text-lg font-bold text-blue-600">
+                <strong>Total:</strong> ${(price + insuranceFee).toFixed(2)}
               </p>
               <p className="text-gray-700">
                 <strong>Pickup:</strong> {pickup}
@@ -538,7 +548,7 @@ export default function App() {
     );
   }
 
-  // Rating view (after service complete)
+  // Rating view
   if (showRating) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6 flex items-center justify-center">
@@ -566,7 +576,6 @@ export default function App() {
                 <h2 className="text-3xl font-bold text-gray-900 mb-2">How was your service?</h2>
                 <p className="text-gray-600 mb-8">Please rate your experience with {driverInfo.name}</p>
 
-                {/* Star Rating */}
                 <div className="flex justify-center gap-4 mb-8">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
@@ -581,7 +590,6 @@ export default function App() {
                   ))}
                 </div>
 
-                {/* Tip Amount */}
                 <div className="mb-8">
                   <label className="block text-lg font-semibold text-gray-700 mb-4">
                     Add a Tip (Optional)
@@ -614,7 +622,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Submit Button */}
                 <button
                   onClick={submitRating}
                   disabled={rating === 0}
@@ -728,6 +735,39 @@ export default function App() {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* INSURANCE SELECTION - NEW */}
+          <div className="mb-6 p-6 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">🛡️ Optional Insurance</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Add additional coverage for any damages that may occur during the tow service.
+            </p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setAddInsurance(false)}
+                className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
+                  !addInsurance
+                    ? 'bg-red-600 text-white shadow-lg'
+                    : 'bg-white border-2 border-red-200 text-gray-700 hover:border-red-400'
+                }`}
+              >
+                ✗ No Insurance
+              </button>
+              <button
+                onClick={() => setAddInsurance(true)}
+                className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
+                  addInsurance
+                    ? 'bg-green-600 text-white shadow-lg'
+                    : 'bg-white border-2 border-green-200 text-gray-700 hover:border-green-400'
+                }`}
+              >
+                ✓ Add Insurance (+${INSURANCE_FEE})
+              </button>
+            </div>
+            <p className="text-xs text-gray-600 mt-3">
+              Without insurance, you will deal directly with the tow company regarding any damages.
+            </p>
           </div>
 
           {/* Photo Upload Section */}
@@ -1047,8 +1087,16 @@ export default function App() {
                     <strong>📍 Coordinates:</strong> {latitude.toFixed(4)}, {longitude.toFixed(4)}
                   </p>
                 )}
+                <p className="text-gray-700">
+                  <strong>Base Price:</strong> ${price.toFixed(2)}
+                </p>
+                {insuranceFee > 0 && (
+                  <p className="text-gray-700">
+                    <strong>🛡️ Insurance:</strong> ${insuranceFee.toFixed(2)}
+                  </p>
+                )}
                 <p className="text-2xl font-bold text-blue-600">
-                  Estimated Price: ${price.toFixed(2)}
+                  <strong>Total Estimated Price:</strong> ${(price + insuranceFee).toFixed(2)}
                 </p>
               </div>
               <button
