@@ -1,7 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://genesis-tow-backend-production.up.railway.app';
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 const PHOTO_TYPES = [
   { key: 'front', label: 'Front of Vehicle' },
@@ -49,7 +53,11 @@ const KEY_LOCATIONS = [
   { value: 'other', label: 'Other location (describe below)' },
 ];
 
-export default function App() {
+function AppContent() {
+  // Stripe hooks (must be used within an <Elements> provider)
+  const stripe = useStripe();
+  const elements = useElements();
+
   // Form state
   const [serviceType, setServiceType] = useState('tow');
   const [serviceSubtype, setServiceSubtype] = useState('');
@@ -89,6 +97,11 @@ export default function App() {
   const [jobs, setJobs] = useState([]);
   const [booked, setBooked] = useState(false);
   const [activeJobId, setActiveJobId] = useState(null);
+
+  // Payment state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  const [paymentError, setPaymentError] = useState('');
 
   // Driver info (mock)
   const [driverInfo, setDriverInfo] = useState({
@@ -369,7 +382,7 @@ export default function App() {
     }
   };
 
-  const confirmBooking = async () => {
+  const confirmBooking = async (stripePaymentId) => {
     if (price === null) return;
 
     setLoading(true);
@@ -394,6 +407,7 @@ export default function App() {
         add_insurance: addInsurance,
         combined: serviceType === 'winch_and_tow',
         winch_difficulty: (serviceType === 'winch_out' || serviceType === 'winch_and_tow') ? winchDifficulty : null,
+        stripe_payment_id: stripePaymentId || null,
       };
 
       if (serviceSubtype) {
@@ -438,12 +452,88 @@ export default function App() {
       setLocationAccuracy(null);
 
       fetchJobs();
+      return true;
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to confirm booking. Please try again.');
       console.error(err);
+      return false;
     } finally {
       setLoading(false);
     }
+  };
+
+  // Open the Stripe payment modal instead of booking immediately
+  const startPayment = () => {
+    if (price === null) return;
+    setPaymentError('');
+    setShowPaymentModal(true);
+  };
+
+  // Called when the customer submits their card details in the payment modal
+  const handlePayment = async () => {
+    if (!stripe || !elements) {
+      setPaymentError('Payment system is still loading. Please try again in a moment.');
+      return;
+    }
+
+    const cardElement = elements.getElement(CardElement);
+    if (!cardElement) {
+      setPaymentError('Card details are required.');
+      return;
+    }
+
+    setPaymentProcessing(true);
+    setPaymentError('');
+
+    try {
+      const totalAmount = price + insuranceFee;
+
+      // a. Create a payment intent on the backend
+      const checkoutResponse = await axios.post(`${API_BASE_URL}/jobs/checkout`, {
+        amount: Math.round(totalAmount * 100), // amount in cents
+      });
+
+      const { clientSecret } = checkoutResponse.data;
+
+      // b/c. Confirm the card payment with Stripe
+      const { error: stripeError, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement,
+        },
+      });
+
+      if (stripeError) {
+        setPaymentError(stripeError.message || 'Payment failed. Please try again.');
+        setPaymentProcessing(false);
+        return;
+      }
+
+      if (paymentIntent && paymentIntent.status === 'succeeded') {
+        // d. Create the job with the stripe_payment_id
+        const bookingSucceeded = await confirmBooking(paymentIntent.id);
+
+        if (bookingSucceeded) {
+          setShowPaymentModal(false);
+          setTimeout(() => setShowRating(true), 2000);
+        } else {
+          setPaymentError('Payment succeeded but booking failed. Please contact support.');
+        }
+      } else {
+        setPaymentError('Payment was not completed. Please try again.');
+      }
+    } catch (err) {
+      // e. Show error message and allow retry
+      setPaymentError(err.response?.data?.error || 'Failed to process payment. Please try again.');
+      console.error(err);
+    } finally {
+      setPaymentProcessing(false);
+    }
+  };
+
+  const cancelPayment = () => {
+    if (paymentProcessing) return;
+    setShowPaymentModal(false);
+    setPaymentError('');
   };
 
   const submitRating = async () => {
@@ -1247,18 +1337,88 @@ export default function App() {
                 </p>
               </div>
               <button
-                onClick={() => {
-                  confirmBooking();
-                  setTimeout(() => setShowRating(true), 2000);
-                }}
+                onClick={startPayment}
                 disabled={loading}
                 className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 transition text-lg"
               >
-                {loading ? 'Processing...' : '✓ Confirm & Book Driver'}
+                {loading ? 'Processing...' : '💳 Confirm & Pay'}
               </button>
             </div>
           )}
         </div>
+
+        {/* Stripe Payment Modal */}
+        {showPaymentModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <h3 className="text-2xl font-bold text-gray-900 mb-2">Pay for Your Service</h3>
+              <p className="text-gray-600 mb-4">
+                Total amount: <strong>${(price + insuranceFee).toFixed(2)}</strong>
+              </p>
+
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                Use <strong>4242 4242 4242 4242</strong> for test mode. Any future expiry date and any 3-digit CVC will work.
+              </div>
+
+              <div className="mb-4 p-4 border border-gray-300 rounded-lg">
+                <CardElement
+                  options={{
+                    style: {
+                      base: {
+                        fontSize: '16px',
+                        color: '#1f2937',
+                        '::placeholder': { color: '#9ca3af' },
+                      },
+                      invalid: { color: '#dc2626' },
+                    },
+                  }}
+                />
+              </div>
+
+              {paymentError && (
+                <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
+                  {paymentError}
+                </div>
+              )}
+
+              {paymentProcessing && (
+                <div className="mb-4 flex items-center justify-center gap-2 text-gray-600">
+                  <svg
+                    className="animate-spin h-5 w-5 text-blue-600"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  Processing payment...
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={cancelPayment}
+                  disabled={paymentProcessing}
+                  className="w-full bg-gray-200 text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-300 disabled:opacity-50 transition"
+                >
+                  Cancel Payment
+                </button>
+                <button
+                  onClick={handlePayment}
+                  disabled={paymentProcessing || !stripe}
+                  className="w-full bg-green-600 text-white py-3 rounded-lg font-semibold hover:bg-green-700 disabled:bg-gray-400 transition"
+                >
+                  {paymentProcessing ? 'Processing...' : `Pay $${(price + insuranceFee).toFixed(2)}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Active Bookings */}
         {jobs.length > 0 && (
@@ -1295,5 +1455,13 @@ export default function App() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Elements stripe={stripePromise}>
+      <AppContent />
+    </Elements>
   );
 }
