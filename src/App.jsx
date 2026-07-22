@@ -53,6 +53,14 @@ const KEY_LOCATIONS = [
   { value: 'other', label: 'Other location (describe below)' },
 ];
 
+const DRIVE_TYPES = [
+  { value: '2WD', label: '2WD' },
+  { value: '4WD', label: '4WD' },
+  { value: 'AWD', label: 'AWD' },
+  { value: 'RWD', label: 'RWD' },
+  { value: 'Unknown', label: "I don't know" },
+];
+
 function AppContent() {
   // Stripe hooks (must be used within an <Elements> provider)
   const stripe = useStripe();
@@ -76,6 +84,11 @@ function AppContent() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerPhoneAlt, setCustomerPhoneAlt] = useState('');
+  const [vehicleYear, setVehicleYear] = useState('');
+  const [vehicleMake, setVehicleMake] = useState('');
+  const [vehicleModel, setVehicleModel] = useState('');
+  const [vehicleColor, setVehicleColor] = useState('');
+  const [vehicleDriveType, setVehicleDriveType] = useState('');
   const [withVehicle, setWithVehicle] = useState(null);
   const [stayingWithVehicle, setStayingWithVehicle] = useState(null);
   const [keyLocation, setKeyLocation] = useState('');
@@ -282,6 +295,31 @@ function AppContent() {
     setServiceSubtype('');
   };
 
+  // Format vehicle details for display, e.g. "2019 Toyota Camry (Silver, AWD)"
+  const formatVehicleDetails = () => {
+    const parts = [vehicleYear, vehicleMake, vehicleModel].filter((p) => p && String(p).trim());
+    const extras = [];
+    if (vehicleColor && vehicleColor.trim()) extras.push(vehicleColor.trim());
+    if (vehicleDriveType) {
+      extras.push(vehicleDriveType === 'Unknown' ? 'Drive type unknown' : vehicleDriveType);
+    }
+
+    if (parts.length === 0 && extras.length === 0) return '';
+
+    let result = parts.join(' ').trim();
+    if (extras.length > 0) {
+      result = result ? `${result} (${extras.join(', ')})` : `(${extras.join(', ')})`;
+    }
+    return result;
+  };
+
+  const hasVehicleDetails =
+    (vehicleYear && String(vehicleYear).trim()) ||
+    vehicleMake.trim() ||
+    vehicleModel.trim() ||
+    vehicleColor.trim() ||
+    vehicleDriveType;
+
   const calculateQuote = async () => {
     if (!pickup.trim() || !dropoff.trim()) {
       setError('Please enter both pickup and dropoff locations');
@@ -350,6 +388,11 @@ function AppContent() {
         add_insurance: addInsurance,
         combined: serviceType === 'winch_and_tow',
         winch_difficulty: (serviceType === 'winch_out' || serviceType === 'winch_and_tow') ? winchDifficulty : null,
+        vehicle_year: vehicleYear || null,
+        vehicle_make: vehicleMake || null,
+        vehicle_model: vehicleModel || null,
+        vehicle_color: vehicleColor || null,
+        vehicle_drive_type: vehicleDriveType || null,
       };
 
       if (serviceSubtype) {
@@ -407,6 +450,11 @@ function AppContent() {
         add_insurance: addInsurance,
         combined: serviceType === 'winch_and_tow',
         winch_difficulty: (serviceType === 'winch_out' || serviceType === 'winch_and_tow') ? winchDifficulty : null,
+        vehicle_year: vehicleYear || null,
+        vehicle_make: vehicleMake || null,
+        vehicle_model: vehicleModel || null,
+        vehicle_color: vehicleColor || null,
+        vehicle_drive_type: vehicleDriveType || null,
         stripe_payment_id: stripePaymentId || null,
       };
 
@@ -426,6 +474,11 @@ function AppContent() {
       setCustomerName('');
       setCustomerPhone('');
       setCustomerPhoneAlt('');
+      setVehicleYear('');
+      setVehicleMake('');
+      setVehicleModel('');
+      setVehicleColor('');
+      setVehicleDriveType('');
       setPhotos({
         front: null,
         rear: null,
@@ -681,6 +734,11 @@ function AppContent() {
               <p className="text-gray-700">
                 <strong>Dropoff:</strong> {dropoff}
               </p>
+              {hasVehicleDetails && (
+                <p className="text-gray-700">
+                  <strong>🚗 Vehicle:</strong> {formatVehicleDetails()}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -1072,6 +1130,86 @@ function AppContent() {
             </div>
           </div>
 
+          {/* Vehicle Details */}
+          <div className="mb-8 p-6 bg-blue-50 border-2 border-blue-200 rounded-lg">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">🚗 Vehicle Details (Optional)</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Help the driver identify your vehicle at pickup. Skip anything you don't know.
+            </p>
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Year
+                </label>
+                <input
+                  type="number"
+                  placeholder="2019"
+                  value={vehicleYear}
+                  onChange={(e) => setVehicleYear(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Make
+                </label>
+                <input
+                  type="text"
+                  placeholder="Toyota"
+                  value={vehicleMake}
+                  onChange={(e) => setVehicleMake(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Model
+                </label>
+                <input
+                  type="text"
+                  placeholder="Camry"
+                  value={vehicleModel}
+                  onChange={(e) => setVehicleModel(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Color
+                </label>
+                <input
+                  type="text"
+                  placeholder="Silver"
+                  value={vehicleColor}
+                  onChange={(e) => setVehicleColor(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Drive Type
+              </label>
+              <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+                {DRIVE_TYPES.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setVehicleDriveType(vehicleDriveType === value ? '' : value)}
+                    className={`py-2 px-4 rounded-lg font-semibold transition ${
+                      vehicleDriveType === value
+                        ? 'bg-blue-600 text-white shadow-lg'
+                        : 'bg-white border-2 border-blue-200 text-gray-700 hover:border-blue-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Vehicle Presence */}
           <div className="mb-8 p-6 bg-green-50 border-2 border-green-200 rounded-lg">
             <h3 className="text-lg font-bold text-gray-900 mb-4">Vehicle Status & Key Location *</h3>
@@ -1311,6 +1449,11 @@ function AppContent() {
                 <p className="text-gray-700">
                   <strong>Vehicle Size:</strong> {DUTY_LEVELS.find((l) => l.value === dutyLevel)?.label}
                 </p>
+                {hasVehicleDetails && (
+                  <p className="text-gray-700">
+                    <strong>🚗 Vehicle:</strong> {formatVehicleDetails()}
+                  </p>
+                )}
                 <p className="text-gray-700">
                   <strong>Tow Distance:</strong> {distance} miles
                 </p>
