@@ -32,6 +32,15 @@ const DUTY_LEVELS = [
 
 const INSURANCE_FEE = 12; // $12 flat fee for additional insurance
 
+const KEY_LOCATIONS = [
+  { value: 'with_customer', label: 'Keys are with me' },
+  { value: 'under_mat', label: 'Under floor mat' },
+  { value: 'under_bumper', label: 'Under bumper/wheel' },
+  { value: 'mailbox', label: 'In mailbox' },
+  { value: 'with_neighbor', label: 'With neighbor' },
+  { value: 'other', label: 'Other location (describe below)' },
+];
+
 export default function App() {
   // Form state
   const [serviceType, setServiceType] = useState('tow');
@@ -52,6 +61,8 @@ export default function App() {
   const [customerPhoneAlt, setCustomerPhoneAlt] = useState('');
   const [withVehicle, setWithVehicle] = useState(null);
   const [stayingWithVehicle, setStayingWithVehicle] = useState(null);
+  const [keyLocation, setKeyLocation] = useState('');
+  const [keyLocationCustom, setKeyLocationCustom] = useState('');
   const [pickup, setPickup] = useState('');
   const [dropoff, setDropoff] = useState('');
   const [latitude, setLatitude] = useState(null);
@@ -269,6 +280,16 @@ export default function App() {
       return;
     }
 
+    if (withVehicle === false && !keyLocation) {
+      setError('Please specify where the keys will be located');
+      return;
+    }
+
+    if (keyLocation === 'other' && !keyLocationCustom.trim()) {
+      setError('Please describe where the keys will be hidden');
+      return;
+    }
+
     if (!stayingSelected) {
       setError('Please indicate if you will stay with the vehicle');
       return;
@@ -298,6 +319,8 @@ export default function App() {
         customerPhoneAlt: customerPhoneAlt || null,
         with_vehicle: withVehicle,
         staying_with_vehicle: stayingWithVehicle,
+        key_location: keyLocation || null,
+        key_location_custom: keyLocationCustom || null,
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
@@ -344,6 +367,8 @@ export default function App() {
         customerPhoneAlt: customerPhoneAlt || null,
         with_vehicle: withVehicle,
         staying_with_vehicle: stayingWithVehicle,
+        key_location: keyLocation || null,
+        key_location_custom: keyLocationCustom || null,
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
@@ -383,6 +408,8 @@ export default function App() {
       setDutyLevel('regular');
       setWithVehicle(null);
       setStayingWithVehicle(null);
+      setKeyLocation('');
+      setKeyLocationCustom('');
       setLatitude(null);
       setLongitude(null);
       setLocationAccuracy(null);
@@ -907,7 +934,7 @@ export default function App() {
 
           {/* Vehicle Presence */}
           <div className="mb-8 p-6 bg-green-50 border-2 border-green-200 rounded-lg">
-            <h3 className="text-lg font-bold text-gray-900 mb-4">Vehicle Status *</h3>
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Vehicle Status & Key Location *</h3>
 
             <div className="mb-6">
               <label className="block text-sm font-semibold text-gray-700 mb-3">
@@ -918,6 +945,8 @@ export default function App() {
                   onClick={() => {
                     setWithVehicle(true);
                     setStayingWithVehicle(true);
+                    setKeyLocation('with_customer');
+                    setKeyLocationCustom('');
                   }}
                   className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
                     withVehicle === true
@@ -931,6 +960,8 @@ export default function App() {
                   onClick={() => {
                     setWithVehicle(false);
                     setStayingWithVehicle(false);
+                    setKeyLocation('');
+                    setKeyLocationCustom('');
                   }}
                   className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
                     withVehicle === false
@@ -943,8 +974,9 @@ export default function App() {
               </div>
             </div>
 
+            {/* If WITH vehicle - show staying confirmation */}
             {withVehicle === true && (
-              <div>
+              <div className="mb-6 p-4 bg-green-100 rounded-lg border border-green-400">
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
                   Will you stay with your vehicle until the driver arrives? *
                 </label>
@@ -970,6 +1002,66 @@ export default function App() {
                     ✗ No, I'll leave
                   </button>
                 </div>
+                <p className="text-xs text-green-700 mt-2">
+                  💡 You will have live location tracking. Keys are with you.
+                </p>
+              </div>
+            )}
+
+            {/* If NOT with vehicle - MUST specify key location */}
+            {withVehicle === false && (
+              <div className="p-4 bg-red-50 rounded-lg border-2 border-red-300">
+                <h4 className="text-sm font-bold text-red-800 mb-3">
+                  ⚠️ Key Location is Required
+                </h4>
+                <p className="text-xs text-red-700 mb-4">
+                  Since you won't be with the vehicle, you must tell us where the driver will find the keys.
+                  The driver needs access to move your vehicle.
+                </p>
+
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Where will the keys be? *
+                </label>
+                <div className="space-y-2">
+                  {KEY_LOCATIONS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      onClick={() => {
+                        setKeyLocation(value);
+                        if (value !== 'other') {
+                          setKeyLocationCustom('');
+                        }
+                      }}
+                      className={`w-full text-left py-3 px-4 rounded-lg font-semibold transition ${
+                        keyLocation === value
+                          ? 'bg-blue-600 text-white shadow-lg'
+                          : 'bg-white border-2 border-red-200 text-gray-700 hover:border-red-400'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Custom location description */}
+                {keyLocation === 'other' && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Describe key location:
+                    </label>
+                    <textarea
+                      placeholder="e.g., Under the black rock behind the mailbox"
+                      value={keyLocationCustom}
+                      onChange={(e) => setKeyLocationCustom(e.target.value)}
+                      className="w-full px-4 py-2 border border-red-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                      rows="3"
+                    />
+                  </div>
+                )}
+
+                <p className="text-xs text-red-700 mt-3">
+                  💡 If you don't want to hide your keys, you must stay with your vehicle.
+                </p>
               </div>
             )}
           </div>
