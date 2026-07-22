@@ -106,6 +106,12 @@ export default function App() {
   const [tipAmount, setTipAmount] = useState(0);
   const [showCompletionMessage, setShowCompletionMessage] = useState(false);
 
+  // Cancellation state
+  const [showCancellationModal, setShowCancellationModal] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [cancellingJob, setCancellingJob] = useState(false);
+  const [cancellationSuccess, setCancellationSuccess] = useState(false);
+
   // Camera state
   const [cameraOpen, setCameraOpen] = useState(null);
   const videoRef = useRef(null);
@@ -472,6 +478,71 @@ export default function App() {
     }
   };
 
+  const handleCancelBooking = async () => {
+    if (!cancellationReason.trim()) {
+      setError('Please provide a reason for cancellation');
+      return;
+    }
+
+    setCancellingJob(true);
+    setError('');
+
+    try {
+      await axios.delete(`${API_BASE_URL}/jobs/${activeJobId}`, {
+        data: { cancellation_reason: cancellationReason },
+      });
+
+      setCancellingJob(false);
+      setShowCancellationModal(false);
+      setCancellationSuccess(true);
+
+      setTimeout(() => {
+        setCancellationSuccess(false);
+        setCancellationReason('');
+        setBooked(false);
+        setActiveJobId(null);
+        stopWatchingLocation();
+
+        // Reset form
+        setPickup('');
+        setDropoff('');
+        setCustomerName('');
+        setCustomerPhone('');
+        setCustomerPhoneAlt('');
+        setPhotos({
+          front: null,
+          rear: null,
+          front_driver_side: null,
+          rear_driver_side: null,
+          front_passenger_side: null,
+          rear_passenger_side: null,
+        });
+        setDistance(null);
+        setEnRouteMiles(null);
+        setPrice(null);
+        setInsuranceFee(0);
+        setAddInsurance(false);
+        setServiceType('tow');
+        setServiceSubtype('');
+        setDutyLevel('regular');
+        setWinchDifficulty('moderate');
+        setWithVehicle(null);
+        setStayingWithVehicle(null);
+        setKeyLocation('');
+        setKeyLocationCustom('');
+        setLatitude(null);
+        setLongitude(null);
+        setLocationAccuracy(null);
+
+        fetchJobs();
+      }, 3000);
+    } catch (err) {
+      setCancellingJob(false);
+      setError(err.response?.data?.error || 'Failed to cancel service. Please try again.');
+      console.error(err);
+    }
+  };
+
   const fetchJobs = async () => {
     try {
       const response = await axios.get(`${API_BASE_URL}/jobs`);
@@ -521,10 +592,30 @@ export default function App() {
 
   // Driver tracking view
   if (booked && activeJobId) {
+    if (cancellationSuccess) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6 flex items-center justify-center">
+          <div className="max-w-2xl mx-auto bg-white rounded-lg shadow-lg p-8 text-center">
+            <div className="text-6xl mb-6">✓</div>
+            <h2 className="text-3xl font-bold text-green-600 mb-4">Service Cancelled</h2>
+            <p className="text-xl text-gray-600">
+              Service cancelled. $15 fee has been applied. You will receive an SMS confirmation.
+            </p>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
         <div className="max-w-2xl mx-auto">
-          <div className="text-center mb-8">
+          <div className="text-center mb-8 relative">
+            <button
+              onClick={() => setShowCancellationModal(true)}
+              className="absolute right-0 top-0 bg-red-600 text-white py-2 px-4 rounded-lg font-semibold hover:bg-red-700 text-sm"
+            >
+              ❌ Cancel Service
+            </button>
             <h1 className="text-4xl font-bold text-gray-900 mb-2">Your Driver is On the Way</h1>
             <p className="text-xl text-gray-600">ETA: {driverInfo.eta} minutes</p>
           </div>
@@ -568,7 +659,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-lg p-8">
+          <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
             <h3 className="text-xl font-bold text-gray-900 mb-4">Service Details</h3>
             <div className="space-y-3">
               <p className="text-gray-700">
@@ -593,7 +684,60 @@ export default function App() {
               </p>
             </div>
           </div>
+
+          <button
+            onClick={() => setShowCancellationModal(true)}
+            className="w-full bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition"
+          >
+            ❌ Cancel Service
+          </button>
         </div>
+
+        {/* Cancellation Modal */}
+        {showCancellationModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Cancel Service?</h2>
+              <p className="text-red-600 font-semibold mb-4">
+                ⚠️ You will be charged a $15 cancellation fee
+              </p>
+
+              {error && (
+                <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded text-sm">
+                  {error}
+                </div>
+              )}
+
+              <textarea
+                value={cancellationReason}
+                onChange={(e) => setCancellationReason(e.target.value)}
+                placeholder="Why are you cancelling? (required)"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 mb-6"
+                rows={4}
+              />
+
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  onClick={() => {
+                    setShowCancellationModal(false);
+                    setError('');
+                  }}
+                  disabled={cancellingJob}
+                  className="bg-gray-300 text-gray-800 py-3 rounded-lg font-semibold hover:bg-gray-400 transition disabled:opacity-50"
+                >
+                  Keep Booking
+                </button>
+                <button
+                  onClick={handleCancelBooking}
+                  disabled={cancellingJob}
+                  className="bg-red-600 text-white py-3 rounded-lg font-semibold hover:bg-red-700 transition disabled:bg-gray-400"
+                >
+                  {cancellingJob ? 'Cancelling...' : 'Cancel Service'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1244,6 +1388,9 @@ export default function App() {
                 )}
                 <p className="text-2xl font-bold text-blue-600">
                   <strong>Total Estimated Price:</strong> ${(price + insuranceFee).toFixed(2)}
+                </p>
+                <p className="text-xs text-gray-500 italic">
+                  Cancel anytime before driver arrives for $15 fee
                 </p>
               </div>
               <button
