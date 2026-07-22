@@ -30,6 +30,15 @@ const DUTY_LEVELS = [
   { value: 'heavy_duty', label: 'Heavy-Duty (18-Wheelers, Box Trucks)' },
 ];
 
+const KEY_LOCATIONS = {
+  with_customer: 'With Customer',
+  under_mat: 'Under Floor Mat',
+  under_bumper: 'Under Bumper/Wheel',
+  mailbox: 'In Mailbox',
+  with_neighbor: 'With Neighbor',
+  other: 'Other',
+};
+
 const INSURANCE_FEE = 12; // $12 flat fee for additional insurance
 
 export default function App() {
@@ -52,6 +61,8 @@ export default function App() {
   const [customerPhoneAlt, setCustomerPhoneAlt] = useState('');
   const [withVehicle, setWithVehicle] = useState(null);
   const [stayingWithVehicle, setStayingWithVehicle] = useState(null);
+  const [keyLocation, setKeyLocation] = useState(null);
+  const [keyLocationCustom, setKeyLocationCustom] = useState('');
   const [pickup, setPickup] = useState('');
   const [dropoff, setDropoff] = useState('');
   const [latitude, setLatitude] = useState(null);
@@ -68,6 +79,8 @@ export default function App() {
   const [jobs, setJobs] = useState([]);
   const [booked, setBooked] = useState(false);
   const [activeJobId, setActiveJobId] = useState(null);
+  const [bookedKeyLocation, setBookedKeyLocation] = useState(null);
+  const [bookedKeyLocationCustom, setBookedKeyLocationCustom] = useState('');
 
   // Driver info (mock)
   const [driverInfo, setDriverInfo] = useState({
@@ -106,6 +119,13 @@ export default function App() {
   // Check if vehicle presence is selected
   const vehiclePresenceSelected = withVehicle !== null;
   const stayingSelected = withVehicle === false || (withVehicle === true && stayingWithVehicle !== null);
+
+  // Check if key location is properly selected
+  const keyLocationSelected =
+    withVehicle === true ||
+    (withVehicle === false &&
+      keyLocation !== null &&
+      (keyLocation !== 'other' || keyLocationCustom.trim() !== ''));
 
   // Get live location
   const getCurrentLocation = () => {
@@ -279,6 +299,16 @@ export default function App() {
       return;
     }
 
+    if (withVehicle === false && !keyLocation) {
+      setError('Please specify where the driver can find the keys');
+      return;
+    }
+
+    if (withVehicle === false && keyLocation === 'other' && !keyLocationCustom.trim()) {
+      setError('Please describe where the driver can find the keys');
+      return;
+    }
+
     if (stayingWithVehicle && !latitude) {
       setError('Please enable your location to share your coordinates');
       return;
@@ -298,6 +328,8 @@ export default function App() {
         customerPhoneAlt: customerPhoneAlt || null,
         with_vehicle: withVehicle,
         staying_with_vehicle: stayingWithVehicle,
+        key_location: keyLocation,
+        key_location_custom: keyLocation === 'other' ? keyLocationCustom : null,
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
@@ -344,6 +376,8 @@ export default function App() {
         customerPhoneAlt: customerPhoneAlt || null,
         with_vehicle: withVehicle,
         staying_with_vehicle: stayingWithVehicle,
+        key_location: keyLocation,
+        key_location_custom: keyLocation === 'other' ? keyLocationCustom : null,
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
@@ -358,6 +392,8 @@ export default function App() {
 
       setBooked(true);
       setActiveJobId(response.data.id);
+      setBookedKeyLocation(keyLocation);
+      setBookedKeyLocationCustom(keyLocationCustom);
       stopWatchingLocation();
 
       // Reset form
@@ -383,6 +419,8 @@ export default function App() {
       setDutyLevel('regular');
       setWithVehicle(null);
       setStayingWithVehicle(null);
+      setKeyLocation(null);
+      setKeyLocationCustom('');
       setLatitude(null);
       setLongitude(null);
       setLocationAccuracy(null);
@@ -541,6 +579,14 @@ export default function App() {
               <p className="text-gray-700">
                 <strong>Dropoff:</strong> {dropoff}
               </p>
+              {bookedKeyLocation && (
+                <p className="text-gray-700">
+                  <strong>🔑 Key Location:</strong>{' '}
+                  {bookedKeyLocation === 'other'
+                    ? bookedKeyLocationCustom
+                    : KEY_LOCATIONS[bookedKeyLocation]}
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -918,6 +964,8 @@ export default function App() {
                   onClick={() => {
                     setWithVehicle(true);
                     setStayingWithVehicle(true);
+                    setKeyLocation('with_customer');
+                    setKeyLocationCustom('');
                   }}
                   className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
                     withVehicle === true
@@ -931,6 +979,8 @@ export default function App() {
                   onClick={() => {
                     setWithVehicle(false);
                     setStayingWithVehicle(false);
+                    setKeyLocation(null);
+                    setKeyLocationCustom('');
                   }}
                   className={`flex-1 py-3 px-4 rounded-lg font-semibold transition ${
                     withVehicle === false
@@ -969,6 +1019,64 @@ export default function App() {
                   >
                     ✗ No, I'll leave
                   </button>
+                </div>
+
+                <div className="mt-4 p-4 bg-white border border-green-200 rounded-lg">
+                  <p className="text-sm text-green-700 font-semibold">
+                    ✓ Keys will stay with you. No key handoff is needed since you're with the vehicle.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {withVehicle === false && (
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Where can the driver find your keys? *
+                </label>
+                <p className="text-xs text-gray-600 mb-3">
+                  Since you won't be with the vehicle, the driver needs a secure way to access your keys. If you'd
+                  rather not leave your keys hidden, please select "Yes, I'm with it" above and stay with your
+                  vehicle instead.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {Object.entries(KEY_LOCATIONS)
+                    .filter(([value]) => value !== 'with_customer')
+                    .map(([value, label]) => (
+                      <button
+                        key={value}
+                        onClick={() => setKeyLocation(value)}
+                        className={`py-3 px-4 rounded-lg font-semibold transition ${
+                          keyLocation === value
+                            ? 'bg-red-600 text-white shadow-lg'
+                            : 'bg-white border-2 border-green-200 text-gray-700 hover:border-green-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                </div>
+
+                {keyLocation === 'other' && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Describe the key location *
+                    </label>
+                    <textarea
+                      placeholder="e.g., In a lockbox on the porch railing"
+                      value={keyLocationCustom}
+                      onChange={(e) => setKeyLocationCustom(e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      rows={3}
+                    />
+                  </div>
+                )}
+
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-300 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    ⚠️ Please ensure the keys are securely hidden and only describe a location you're comfortable
+                    sharing with the driver. This information will be shared with your assigned driver only.
+                  </p>
                 </div>
               </div>
             )}
@@ -1051,6 +1159,7 @@ export default function App() {
               !vehiclePresenceSelected ||
               !stayingSelected ||
               !subtypeSelected ||
+              !keyLocationSelected ||
               (stayingWithVehicle && !latitude)
             }
             className={`w-full py-3 rounded-lg font-semibold transition ${
@@ -1059,6 +1168,7 @@ export default function App() {
               vehiclePresenceSelected &&
               stayingSelected &&
               subtypeSelected &&
+              keyLocationSelected &&
               (!stayingWithVehicle || latitude)
                 ? 'bg-blue-600 text-white hover:bg-blue-700'
                 : 'bg-gray-400 text-gray-200 cursor-not-allowed'
@@ -1085,6 +1195,12 @@ export default function App() {
                 {latitude && longitude && (
                   <p className="text-gray-700">
                     <strong>📍 Coordinates:</strong> {latitude.toFixed(4)}, {longitude.toFixed(4)}
+                  </p>
+                )}
+                {keyLocation && (
+                  <p className="text-gray-700">
+                    <strong>🔑 Key Location:</strong>{' '}
+                    {keyLocation === 'other' ? keyLocationCustom : KEY_LOCATIONS[keyLocation]}
                   </p>
                 )}
                 <p className="text-gray-700">
