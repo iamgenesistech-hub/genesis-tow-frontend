@@ -22,12 +22,20 @@ const SERVICE_TYPES = {
     ],
   },
   winch_out: { label: 'Winch Out', subtypes: [] },
+  winch_and_tow: { label: 'Winch Out + Tow', subtypes: [] },
 };
 
 const DUTY_LEVELS = [
   { value: 'regular', label: 'Regular (Cars & Most Pickups)' },
   { value: 'medium', label: 'Medium (Duallys, Work Vans, Large Cars)' },
   { value: 'heavy_duty', label: 'Heavy-Duty (18-Wheelers, Box Trucks)' },
+];
+
+const WINCH_DIFFICULTIES = [
+  { value: 'easy', label: 'Easy (flat ground, paved)' },
+  { value: 'moderate', label: 'Moderate (ditch, soft ground) +$30' },
+  { value: 'hard', label: 'Hard (steep, mud, off-road) +$60' },
+  { value: 'extreme', label: 'Extreme (deep water, debris) +$100' },
 ];
 
 const INSURANCE_FEE = 12; // $12 flat fee for additional insurance
@@ -46,6 +54,7 @@ export default function App() {
   const [serviceType, setServiceType] = useState('tow');
   const [serviceSubtype, setServiceSubtype] = useState('');
   const [dutyLevel, setDutyLevel] = useState('regular');
+  const [winchDifficulty, setWinchDifficulty] = useState('moderate');
   const [addInsurance, setAddInsurance] = useState(false); // NEW
   const [photos, setPhotos] = useState({
     front: null,
@@ -72,6 +81,7 @@ export default function App() {
 
   // Booking state
   const [distance, setDistance] = useState(null);
+  const [enRouteMiles, setEnRouteMiles] = useState(null);
   const [price, setPrice] = useState(null);
   const [insuranceFee, setInsuranceFee] = useState(0); // NEW
   const [loading, setLoading] = useState(false);
@@ -324,7 +334,9 @@ export default function App() {
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
-        add_insurance: addInsurance, // NEW
+        add_insurance: addInsurance,
+        combined: serviceType === 'winch_and_tow',
+        winch_difficulty: (serviceType === 'winch_out' || serviceType === 'winch_and_tow') ? winchDifficulty : null,
       };
 
       if (serviceSubtype) {
@@ -333,11 +345,18 @@ export default function App() {
 
       const response = await axios.post(`${API_BASE_URL}/jobs`, payload);
 
-      setDistance(response.data.distance_miles);
-      setPrice(response.data.price_cents / 100);
-      setInsuranceFee(addInsurance ? INSURANCE_FEE : 0); // NEW
+      if (response.data.type === 'combined') {
+        setDistance(response.data.towJob?.distance_miles || 0);
+        setEnRouteMiles(response.data.enRouteMiles || 0);
+        setPrice(response.data.totalCents / 100);
+      } else {
+        setDistance(response.data.distance_miles);
+        setEnRouteMiles(response.data.en_route_miles || 0);
+        setPrice(response.data.price_cents / 100);
+      }
+      setInsuranceFee(addInsurance ? INSURANCE_FEE : 0);
       setBooked(false);
-      setActiveJobId(response.data.id);
+      setActiveJobId(response.data.id || response.data.towJob?.id);
 
       if (stayingWithVehicle) {
         startWatchingLocation();
@@ -372,7 +391,9 @@ export default function App() {
         latitude: latitude || null,
         longitude: longitude || null,
         location_accuracy: locationAccuracy || null,
-        add_insurance: addInsurance, // NEW
+        add_insurance: addInsurance,
+        combined: serviceType === 'winch_and_tow',
+        winch_difficulty: (serviceType === 'winch_out' || serviceType === 'winch_and_tow') ? winchDifficulty : null,
       };
 
       if (serviceSubtype) {
@@ -382,7 +403,7 @@ export default function App() {
       const response = await axios.post(`${API_BASE_URL}/jobs`, payload);
 
       setBooked(true);
-      setActiveJobId(response.data.id);
+      setActiveJobId(response.data.id || response.data.towJob?.id);
       stopWatchingLocation();
 
       // Reset form
@@ -400,12 +421,14 @@ export default function App() {
         rear_passenger_side: null,
       });
       setDistance(null);
+      setEnRouteMiles(null);
       setPrice(null);
-      setInsuranceFee(0); // NEW
-      setAddInsurance(false); // NEW
+      setInsuranceFee(0);
+      setAddInsurance(false);
       setServiceType('tow');
       setServiceSubtype('');
       setDutyLevel('regular');
+      setWinchDifficulty('moderate');
       setWithVehicle(null);
       setStayingWithVehicle(null);
       setKeyLocation('');
@@ -705,7 +728,7 @@ export default function App() {
             <label className="block text-sm font-semibold text-gray-700 mb-3">
               Service Type *
             </label>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {Object.entries(SERVICE_TYPES).map(([key, { label }]) => (
                 <button
                   key={key}
@@ -737,6 +760,33 @@ export default function App() {
                       serviceSubtype === value
                         ? 'bg-green-600 text-white shadow-lg'
                         : 'bg-white border border-green-200 text-gray-700 hover:border-green-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Winch Difficulty (shown for winch_out or winch_and_tow) */}
+          {(serviceType === 'winch_out' || serviceType === 'winch_and_tow') && (
+            <div className="mb-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+              <label className="block text-sm font-semibold text-gray-700 mb-3">
+                Winch-Out Difficulty *
+              </label>
+              <p className="text-xs text-gray-600 mb-3">
+                Pricing varies based on terrain and difficulty. Select the option that best describes the situation.
+              </p>
+              <div className="space-y-2">
+                {WINCH_DIFFICULTIES.map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => setWinchDifficulty(value)}
+                    className={`w-full text-left py-3 px-4 rounded-lg font-semibold transition ${
+                      winchDifficulty === value
+                        ? 'bg-orange-600 text-white shadow-lg'
+                        : 'bg-white border border-orange-200 text-gray-700 hover:border-orange-400'
                     }`}
                   >
                     {label}
@@ -1172,8 +1222,13 @@ export default function App() {
                   <strong>Vehicle Size:</strong> {DUTY_LEVELS.find((l) => l.value === dutyLevel)?.label}
                 </p>
                 <p className="text-gray-700">
-                  <strong>Distance:</strong> {distance} miles
+                  <strong>Tow Distance:</strong> {distance} miles
                 </p>
+                {enRouteMiles > 0 && (
+                  <p className="text-gray-700">
+                    <strong>🚛 En-Route (driver → you):</strong> {enRouteMiles} miles
+                  </p>
+                )}
                 {latitude && longitude && (
                   <p className="text-gray-700">
                     <strong>📍 Coordinates:</strong> {latitude.toFixed(4)}, {longitude.toFixed(4)}
