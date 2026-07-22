@@ -16,6 +16,7 @@ Open http://localhost:5173
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VITE_API_URL` | `` (empty, uses proxy) | Backend API base URL for production |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | `` | Stripe publishable key (test mode `pk_test_*`) used to initialize Stripe.js on the client |
 
 ## Development
 
